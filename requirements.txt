@@ -3,6 +3,8 @@ pyaudio
 soundfile
 numpy
 psutil
+pycaw
+
 
 # Wake Word & Speech-to-Text
 pvporcupine

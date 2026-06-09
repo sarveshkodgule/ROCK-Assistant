@@ -10,12 +10,17 @@ import torch
 import torchaudio
 from speechbrain.inference.speaker import EncoderClassifier
 from dotenv import load_dotenv
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+from ctypes import cast, POINTER
+from comtypes import CLSCTX_ALL
 
 load_dotenv()
 
 class AudioCore:
     def __init__(self):
         print("[System] Initializing ROCK Audio Core...")
+        self.volume_control = None
+        self.was_muted = False
         
         # 1. TTS Setup
         self.engine = pyttsx3.init()
@@ -146,3 +151,27 @@ class AudioCore:
                     except Exception as e:
                         print(f"Fallback wake word error: {e}")
                         break
+
+    def mute_system(self):
+        """Mutes system audio, remembering if it was already muted."""
+        try:
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            self.volume_control = cast(interface, POINTER(IAudioEndpointVolume))
+            self.was_muted = self.volume_control.GetMute()
+            if not self.was_muted:
+                print("[System Audio] Wake Word Detected. Muting system audio...")
+                self.volume_control.SetMute(1, None)
+        except Exception as e:
+            print(f"[Warning] Failed to mute system audio: {e}")
+            self.volume_control = None
+            self.was_muted = False
+
+    def unmute_system(self):
+        """Restores system audio to its original state."""
+        try:
+            if self.volume_control and not self.was_muted:
+                print("[System Audio] Restoring system audio...")
+                self.volume_control.SetMute(0, None)
+        except Exception as e:
+            print(f"[Warning] Failed to unmute system audio: {e}")
