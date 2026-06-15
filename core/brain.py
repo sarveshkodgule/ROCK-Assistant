@@ -68,7 +68,7 @@ class Brain:
                 return f"Failed to erase memory: {e}"
         return "Memory module is offline."
 
-    def process_command(self, user_text):
+    def process_command(self, user_text, web_context=None):
         """Sends the user command to the local LLM and returns the response."""
         
         # 1. Retrieve relevant memory context
@@ -92,6 +92,9 @@ class Brain:
 
         # 2. Build prompt
         augmented_user_text = user_text + memory_context
+        if web_context:
+            augmented_user_text = f"Using this recent web search data as context:\n{web_context}\n\nAnswer the user's question: {augmented_user_text}"
+            
         messages = [self.system_prompt] + self.history + [{"role": "user", "content": augmented_user_text}]
         
         try:
