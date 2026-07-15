@@ -116,31 +116,27 @@ class Brain:
                 full_reply += token
                 buffer += token
                 
-                # Check for sentence boundaries
+                # Check for sentence boundaries by finding the earliest completed sentence
                 while True:
-                    end_idx = -1
+                    earliest_idx = -1
+                    earliest_pattern_len = 0
+                    
                     for ending in sentence_endings:
-                        idx = buffer.find(ending)
-                        if idx != -1:
-                            if end_idx == -1 or idx < end_idx:
-                                end_idx = idx
-                                
-                    if end_idx == -1:
+                        for space_char in [' ', '\n', '\r']:
+                            pattern = ending + space_char
+                            idx = buffer.find(pattern)
+                            if idx != -1:
+                                if earliest_idx == -1 or idx < earliest_idx:
+                                    earliest_idx = idx
+                                    earliest_pattern_len = len(pattern)
+                                    
+                    if earliest_idx == -1:
                         break
                         
-                    # Punctuation found. Check if followed by space or is the end of the buffer
-                    if end_idx + 1 < len(buffer):
-                        next_char = buffer[end_idx + 1]
-                        if next_char.isspace():
-                            sentence = buffer[:end_idx + 1].strip()
-                            buffer = buffer[end_idx + 2:]
-                            if sentence:
-                                yield sentence
-                        else:
-                            # Not a boundary (e.g., decimals/abbreviations)
-                            break
-                    else:
-                        break
+                    sentence = buffer[:earliest_idx + 1].strip()
+                    buffer = buffer[earliest_idx + earliest_pattern_len:]
+                    if sentence:
+                        yield sentence
             
             # Yield remaining buffer
             remaining = buffer.strip()
