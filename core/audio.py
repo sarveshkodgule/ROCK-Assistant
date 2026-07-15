@@ -65,10 +65,10 @@ class AudioCore:
     def _tts_worker(self):
         """Worker thread that processes the speech queue sequentially using COM initialization."""
         try:
-            import comtypes.client
-            comtypes.client.CoInitialize()
-        except Exception:
-            pass
+            import comtypes
+            comtypes.CoInitialize()
+        except Exception as e:
+            print(f"[Warning] Failed to initialize COM: {e}")
         engine = pyttsx3.init()
         engine.setProperty('rate', 170)
         while True:
