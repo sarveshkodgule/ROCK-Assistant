@@ -69,8 +69,6 @@ class AudioCore:
             comtypes.CoInitialize()
         except Exception as e:
             print(f"[Warning] Failed to initialize COM: {e}")
-        engine = pyttsx3.init()
-        engine.setProperty('rate', 170)
         while True:
             text = self.tts_queue.get()
             if text is None:
@@ -78,8 +76,12 @@ class AudioCore:
                 break
             try:
                 print(f"ROCK: {text}")
+                # Initialize SAPI5 engine on-demand to maintain fresh COM state and audio handles
+                engine = pyttsx3.init()
+                engine.setProperty('rate', 170)
                 engine.say(text)
                 engine.runAndWait()
+                del engine
             except Exception as e:
                 print(f"[TTS Worker Error] {e}")
             finally:
