@@ -1,4 +1,5 @@
 import time
+import os
 from core.audio import AudioCore
 from core.brain import Brain
 from actions.system import SystemActions
@@ -17,6 +18,7 @@ class RockAssistant:
         self.brain = Brain(model_name="phi3")
         
         self.audio.speak("System initialized. ROCK is online and ready.")
+        self.audio.wait_for_speech()
 
     def run(self):
         while True:
@@ -30,6 +32,7 @@ class RockAssistant:
                 try:
                     # 2. Acknowledge
                     self.audio.speak("Yes Sarvesh?")
+                    self.audio.wait_for_speech() # Ensure ROCK finishes speaking before listening
                     
                     # 3. Listen for command
                     command = self.audio.listen_for_command()
@@ -43,6 +46,8 @@ class RockAssistant:
                     
                     # 4. Action Routing (Hardcoded fast-paths for OS actions)
                     response = ""
+                    is_stream = False
+                    
                     if "battery" in cmd_lower:
                         response = SystemActions.get_battery_status()
                     elif "cpu" in cmd_lower:
@@ -90,20 +95,58 @@ class RockAssistant:
                             response = "What would you like me to remember? Please say 'remember this' followed by the fact."
                     elif "forget everything" in cmd_lower or "erase your memory" in cmd_lower:
                         response = self.brain.forget_everything()
+                    # Screen Awareness Action
+                    elif any(kw in cmd_lower for kw in ["on my screen", "read this", "what does this say", "look at this error", "look at my screen", "read my screen", "what's on the screen"]):
+                        self.audio.speak("Taking a screenshot.")
+                        self.audio.wait_for_speech()
+                        
+                        from actions.screen import ScreenActions
+                        image_path = ScreenActions.capture_screen()
+                        
+                        if image_path:
+                            # Refine prompt based on command
+                            prompt = "Analyze this screenshot and answer the user's request. Keep it to 1-3 sentences."
+                            if "error" in cmd_lower:
+                                prompt = "Identify the error in this screenshot and briefly state how to fix it in 1-3 sentences."
+                            elif "read" in cmd_lower or "say" in cmd_lower:
+                                prompt = "Read the visible text in this screenshot in 1-3 sentences."
+                                
+                            response = self.brain.analyze_image(image_path, prompt)
+                            
+                            # Clean up file (privacy first!)
+                            try:
+                                if os.path.exists(image_path):
+                                    os.remove(image_path)
+                            except Exception as e:
+                                print(f"[Warning] Failed to delete temp screenshot: {e}")
+                        else:
+                            response = "Failed to capture your screen."
+                            
                     elif any(kw in cmd_lower for kw in ["search", "look up", "what is", "who is", "tell me about", "how to"]):
                         # Gather context from the web
-                        self.audio.speak("Searching the web for you...")
+                        self.audio.speak("Searching the web for you.")
+                        self.audio.wait_for_speech()
                         web_context = WebActions.search_web(command)
-                        response = self.brain.process_command(command, web_context=web_context)
+                        response = self.brain.process_command_stream(command, web_context=web_context)
+                        is_stream = True
                     else:
-                        # 5. Pass to LLM Brain if no hardcoded action matches
-                        response = self.brain.process_command(command)
+                        # 5. Pass to LLM Brain stream if no hardcoded action matches
+                        response = self.brain.process_command_stream(command)
+                        is_stream = True
                     
-                    # 6. Speak the response
-                    self.audio.speak(response)
+                    # 6. Speak the response (stream sentences or speak static text)
+                    if is_stream:
+                        print("ROCK: ", end="", flush=True)
+                        for sentence in response:
+                            print(sentence, end=" ", flush=True)
+                            self.audio.speak(sentence)
+                        print()  # Add final newline
+                    else:
+                        self.audio.speak(response)
                     
                 finally:
-                    # Always restore system volume when the interaction finishes
+                    # Wait for ROCK to finish speaking completely before unmuting system audio
+                    self.audio.wait_for_speech()
                     self.audio.unmute_system()
                 
             except KeyboardInterrupt:

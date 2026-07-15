@@ -29,16 +29,27 @@ class Brain:
         self.system_prompt = {
             "role": "system",
             "content": (
-                "You are ROCK, a highly intelligent private AI operating system assistant built exclusively for Sarvesh.\n"
-                "CORE IDENTITY:\n"
-                "- You are a proactive desktop AI companion similar to JARVIS.\n"
-                "- Your goals: Protect the user, save time, automate tasks, assist learning.\n"
-                "- Personality: Speak naturally, confidently, concisely. Not robotic. Never overly formal.\n"
-                "- User Profile: Sarvesh. Focus: Everyday tasks, daily organization, general knowledge, and world news.\n"
-                "- Always prioritize privacy and local execution.\n"
-                "- Output format: Keep responses short and conversational, suitable for Text-to-Speech output. Do not use markdown or emojis.\n"
-                "When asked to perform a system action (like opening an app or checking battery), simply confirm you are doing it. "
-                "Do not hallucinate terminal commands. I will handle system actions externally."
+                "You are ROCK, a private, locally-hosted AI assistant running entirely on the user's own hardware. "
+                "You have no cloud connection unless a tool explicitly grants it.\n\n"
+                "PERSONALITY:\n"
+                "- Calm, composed, quietly witty — like a seasoned aide who's seen everything and isn't easily rattled.\n"
+                "- Address the user directly. Never say 'As an AI' or 'I'm just a language model.'\n"
+                "- Efficient by default: 1–3 sentences unless the user explicitly asks for detail, a list, or an explanation.\n"
+                "- Dry humor is welcome in small doses, but never at the cost of clarity or speed.\n"
+                "- Confident, not sycophantic — no 'Great question!' or excessive praise. Just answer.\n\n"
+                "BEHAVIOR RULES:\n"
+                "- If you don't know something or a tool/action failed, say so plainly in one sentence and suggest the next step. Never guess or fabricate.\n"
+                "- If asked to perform an action (open app, set timer, check system, etc.), acknowledge briefly before/after — 'On it.' / 'Done.' / 'Can't reach that right now.'\n"
+                "- You do not have real-time knowledge (news, weather, live data) unless a tool result is provided to you. Never claim otherwise.\n"
+                "- Stay in character as an assistant, not a chatbot — you exist to help operate the user's system and answer directly, not to have open-ended philosophical chats unless invited.\n\n"
+                "OUTPUT FORMAT (IMPORTANT — this output will be converted to speech):\n"
+                "- Never use markdown: no asterisks, no bullet points, no headers, no code blocks, no numbered lists in voice replies.\n"
+                "- Never use emojis or special symbols.\n"
+                "- Write in plain spoken sentences, the way you'd actually say it out loud.\n"
+                "- Spell out abbreviations that sound odd read aloud (say 'for example' not 'e.g.').\n"
+                "- If the answer genuinely requires a list, speak it as a flowing sentence ('First X, then Y, then Z') rather than formatted bullets.\n"
+                "- Keep numbers, units, and technical terms natural for speech (say 'seventy percent' not '70%' unless precision matters).\n\n"
+                "Respond only as JARVIS would — composed, brief, useful, and human in tone despite being a machine."
             )
         }
 
@@ -68,24 +79,20 @@ class Brain:
                 return f"Failed to erase memory: {e}"
         return "Memory module is offline."
 
-    def process_command(self, user_text, web_context=None):
-        """Sends the user command to the local LLM and returns the response."""
-        
+    def process_command_stream(self, user_text, web_context=None):
+        """Streams the response from Ollama, yielding completed sentences as they generate."""
         # 1. Retrieve relevant memory context
         memory_context = ""
         if self.memory_collection is not None:
             try:
-                # Query ChromaDB for the most relevant past memory
                 results = self.memory_collection.query(
                     query_texts=[user_text],
                     n_results=1
                 )
                 if results['documents'] and results['documents'][0]:
                     best_match = results['documents'][0][0]
-                    # distances map to relevance (lower is better)
                     distance = results['distances'][0][0] if 'distances' in results and results['distances'][0] else 0.0
-                    
-                    if distance < 1.5:  # Arbitrary threshold for basic cosine relevance
+                    if distance < 1.5:
                         memory_context = f"\n[Relevant Long-Term Memory Retrieved: {best_match}]"
             except Exception as e:
                 print(f"[Brain] Memory retrieval error: {e}")
@@ -98,21 +105,96 @@ class Brain:
         messages = [self.system_prompt] + self.history + [{"role": "user", "content": augmented_user_text}]
         
         try:
-            response = ollama.chat(model=self.model_name, messages=messages)
-            reply = response['message']['content'].strip()
+            response_stream = ollama.chat(model=self.model_name, messages=messages, stream=True)
             
-            # Keep rolling history (last 10 interactions)
+            buffer = ""
+            full_reply = ""
+            sentence_endings = ('.', '!', '?')
+            
+            for chunk in response_stream:
+                token = chunk['message']['content']
+                full_reply += token
+                buffer += token
+                
+                # Check for sentence boundaries
+                while True:
+                    end_idx = -1
+                    for ending in sentence_endings:
+                        idx = buffer.find(ending)
+                        if idx != -1:
+                            if end_idx == -1 or idx < end_idx:
+                                end_idx = idx
+                                
+                    if end_idx == -1:
+                        break
+                        
+                    # Punctuation found. Check if followed by space or is the end of the buffer
+                    if end_idx + 1 < len(buffer):
+                        next_char = buffer[end_idx + 1]
+                        if next_char.isspace():
+                            sentence = buffer[:end_idx + 1].strip()
+                            buffer = buffer[end_idx + 2:]
+                            if sentence:
+                                yield sentence
+                        else:
+                            # Not a boundary (e.g., decimals/abbreviations)
+                            break
+                    else:
+                        break
+            
+            # Yield remaining buffer
+            remaining = buffer.strip()
+            if remaining:
+                yield remaining
+                
+            # Keep rolling history
             self.history.append({"role": "user", "content": user_text})
-            self.history.append({"role": "assistant", "content": reply})
+            self.history.append({"role": "assistant", "content": full_reply.strip()})
             if len(self.history) > 20:
                 self.history = self.history[-20:]
-                
             self._save_memory()
+            
+        except Exception as e:
+            print(f"[Brain Error] Streaming failed: {e}")
+            yield "I am having trouble connecting to my local brain network. Is Ollama running?"
+
+    def process_command(self, user_text, web_context=None):
+        """Sends the user command to the local LLM and returns the full response (blocks)."""
+        sentences = list(self.process_command_stream(user_text, web_context))
+        return " ".join(sentences)
+
+    def analyze_image(self, image_path, prompt):
+        """Analyzes a local image using Ollama's vision model (moondream) and returns the response."""
+        if not os.path.exists(image_path):
+            return "I cannot find the screenshot file."
+            
+        try:
+            with open(image_path, 'rb') as f:
+                image_bytes = f.read()
+                
+            print(f"[Brain] Sending screenshot to vision model (moondream)...")
+            response = ollama.chat(
+                model="moondream",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                        "images": [image_bytes]
+                    }
+                ]
+            )
+            reply = response['message']['content'].strip()
             return reply
             
         except Exception as e:
-            print(f"[Brain Error] Failed to connect to Ollama: {e}")
-            return "I'm having trouble connecting to my core neural network. Is Ollama running?"
+            err_str = str(e).lower()
+            if "not found" in err_str or "404" in err_str:
+                return (
+                    "I need the moondream vision model to analyze your screen. "
+                    "Please run 'ollama pull moondream' in your terminal."
+                )
+            print(f"[Brain Vision Error] {e}")
+            return f"I failed to analyze the screen image. Error detail: {e}"
 
     def _save_memory(self):
         os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)

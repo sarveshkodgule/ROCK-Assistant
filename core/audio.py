@@ -14,6 +14,9 @@ from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 
+import queue
+import threading
+
 load_dotenv()
 
 class AudioCore:
@@ -22,9 +25,10 @@ class AudioCore:
         self.volume_control = None
         self.was_muted = False
         
-        # 1. TTS Setup
-        self.engine = pyttsx3.init()
-        self.engine.setProperty('rate', 170) # Slightly faster, confident pace
+        # 1. TTS Setup (Thread-safe Queue & Background Thread)
+        self.tts_queue = queue.Queue()
+        self.tts_thread = threading.Thread(target=self._tts_worker, daemon=True)
+        self.tts_thread.start()
         
         # 2. Whisper STT Setup
         print("[System] Loading Whisper model (Base)...")
@@ -58,10 +62,40 @@ class AudioCore:
             print(f"[Warning] Porcupine Wake Word Engine not available ({e}). Using continuous fallback listening.")
             self.use_porcupine = False
             
+    def _tts_worker(self):
+        """Worker thread that processes the speech queue sequentially using COM initialization."""
+        try:
+            import comtypes.client
+            comtypes.client.CoInitialize()
+        except Exception:
+            pass
+        engine = pyttsx3.init()
+        engine.setProperty('rate', 170)
+        while True:
+            text = self.tts_queue.get()
+            if text is None:
+                self.tts_queue.task_done()
+                break
+            try:
+                print(f"ROCK: {text}")
+                engine.say(text)
+                engine.runAndWait()
+            except Exception as e:
+                print(f"[TTS Worker Error] {e}")
+            finally:
+                self.tts_queue.task_done()
+
     def speak(self, text):
-        print(f"ROCK: {text}")
-        self.engine.say(text)
-        self.engine.runAndWait()
+        """Adds text to the speech queue without blocking the main execution thread."""
+        if text:
+            # Strip any markdown characters to keep the speech clean
+            clean_text = text.replace("*", "").replace("_", "").replace("`", "").strip()
+            if clean_text:
+                self.tts_queue.put(clean_text)
+        
+    def wait_for_speech(self):
+        """Blocks until the background speech queue is completely empty."""
+        self.tts_queue.join()
         
     def listen_for_command(self):
         """Listens for a command using SpeechRecognition and processes with Whisper."""

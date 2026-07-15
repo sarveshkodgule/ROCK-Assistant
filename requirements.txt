@@ -4,6 +4,8 @@ soundfile
 numpy
 psutil
 pycaw
+pillow
+
 
 
 # Wake Word & Speech-to-Text
