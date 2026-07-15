@@ -15,8 +15,8 @@ class RockAssistant:
         print("=========================================")
         self.text_mode = text_mode
         self.audio = AudioCore()
-        # Initialize the Brain using the lightweight Microsoft phi3 model
-        self.brain = Brain(model_name="phi3")
+        # Initialize the Brain using the lightweight Qwen 2.5 3B model
+        self.brain = Brain(model_name="qwen2.5:3b")
         
         self.audio.speak("System initialized. ROCK is online and ready.")
         self.audio.wait_for_speech()
