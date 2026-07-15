@@ -1,4 +1,4 @@
 @echo off
-cd /d "C:\Users\Sarvesh Kodgule\.gemini\antigravity\scratch\rock_assistant"
+cd /d "%~dp0"
 call venv\Scripts\activate.bat
 python main.py
