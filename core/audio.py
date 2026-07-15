@@ -25,6 +25,7 @@ class AudioCore:
         self.volume_control = None
         self.was_muted = False
         self.voice_index = int(os.environ.get("TTS_VOICE_INDEX", 0))
+        self.mute_system_enabled = os.environ.get("MUTE_SYSTEM_ON_WAKE", "True").lower() == "true"
         
         # 1. TTS Setup (Thread-safe Queue & Background Thread)
         self.tts_queue = queue.Queue()
@@ -206,6 +207,8 @@ class AudioCore:
 
     def mute_system(self):
         """Mutes system audio, remembering if it was already muted."""
+        if not self.mute_system_enabled:
+            return
         try:
             speakers = AudioUtilities.GetSpeakers()
             self.volume_control = speakers.EndpointVolume
@@ -220,6 +223,8 @@ class AudioCore:
 
     def unmute_system(self):
         """Restores system audio to its original state."""
+        if not self.mute_system_enabled:
+            return
         try:
             if self.volume_control and not self.was_muted:
                 print("[System Audio] Restoring system audio...")
