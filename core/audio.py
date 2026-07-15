@@ -24,6 +24,7 @@ class AudioCore:
         print("[System] Initializing ROCK Audio Core...")
         self.volume_control = None
         self.was_muted = False
+        self.voice_index = int(os.environ.get("TTS_VOICE_INDEX", 0))
         
         # 1. TTS Setup (Thread-safe Queue & Background Thread)
         self.tts_queue = queue.Queue()
@@ -79,6 +80,12 @@ class AudioCore:
                 # Initialize SAPI5 engine on-demand to maintain fresh COM state and audio handles
                 engine = pyttsx3.init()
                 engine.setProperty('rate', 170)
+                
+                # Apply configured system voice index
+                voices = engine.getProperty('voices')
+                if 0 <= self.voice_index < len(voices):
+                    engine.setProperty('voice', voices[self.voice_index].id)
+                    
                 engine.say(text)
                 engine.runAndWait()
                 del engine
